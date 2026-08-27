@@ -1,7 +1,7 @@
 name: Mail de alertas
 on:
   schedule:
-    - cron: '0 12 * * *'   # 12:00 UTC = 09:00 Argentina (resumen diario)
+    - cron: '0 13 * * *'   # 13:00 UTC = 10:00 Argentina (resumen diario)
   workflow_dispatch:
     inputs:
       archivo:
