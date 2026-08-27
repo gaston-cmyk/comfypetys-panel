@@ -1,0 +1,41 @@
+name: Mail diario de alertas
+on:
+  schedule:
+    - cron: '0 12 * * *'   # 12:00 UTC = 09:00 Argentina
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: leer
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          try:
+              d = json.load(open('alerta_mail.json'))
+          except Exception:
+              d = {}
+          open('cuerpo.txt','w').write(d.get('cuerpo',''))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f"items={d.get('items',0)}\n")
+              f.write(f"asunto={d.get('asunto','ComfyPetys')}\n")
+          EOF
+      - name: Enviar mail
+        if: steps.leer.outputs.items != '0'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: ${{ steps.leer.outputs.asunto }}
+          to: cobranzas@comfypetys.com
+          from: Sistema ComfyPetys <cobranzas@comfypetys.com>
+          body: file://cuerpo.txt
+      - name: Sin pendientes
+        if: steps.leer.outputs.items == '0'
+        run: echo "Nada para mandar hoy."
