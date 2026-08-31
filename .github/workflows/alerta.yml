@@ -6,6 +6,9 @@ on:
         required: true
       cuerpo:
         required: true
+      destinatarios:
+        required: false
+        default: cobranzas@comfypetys.com
 permissions:
   contents: read
   issues: write
@@ -26,7 +29,7 @@ jobs:
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: ${{ inputs.asunto }}
-          to: cobranzas@comfypetys.com
+          to: ${{ inputs.destinatarios }}
           from: Sistema ComfyPetys <cobranzas@comfypetys.com>
           body: file://cuerpo.txt
       - name: Avisar fallo (meta-alerta)
