@@ -1,0 +1,38 @@
+name: alerta
+
+# Manda un mail. Asunto y cuerpo llegan como INPUTS del disparo.
+#
+# OJO (restaurado el 08/09/2026): este repo es PUBLICO y el registro de cada corrida tambien.
+# Los inputs quedan a la vista, asi que el CUERPO NO PUEDE LLEVAR PLATA. Los montos se miran
+# en el panel del VPS, que pide contrasena.
+
+on:
+  workflow_dispatch:
+    inputs:
+      asunto:
+        description: "Asunto"
+        required: true
+      cuerpo:
+        description: "Cuerpo (SIN montos: el registro es publico)"
+        required: true
+      destinatarios:
+        description: "A quien va, separados por coma"
+        required: false
+        default: ""
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mandar el mail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          secure: false
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          subject: ${{ inputs.asunto }}
+          body: ${{ inputs.cuerpo }}
+          to: ${{ inputs.destinatarios != '' && inputs.destinatarios || secrets.MAIL_TO }}
+          from: ComfyPetys <${{ secrets.MAIL_USER }}>
