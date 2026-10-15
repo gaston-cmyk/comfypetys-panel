@@ -1,0 +1,130 @@
+# Cómo cerrar el panel del depósito
+
+Guía para que `index.html` salga cifrado, con el mismo esquema que ya usa
+`atencion.html`: AES-256-GCM y clave derivada con PBKDF2-SHA256 × 250.000.
+Sin la contraseña, el archivo no se puede leer aunque se tenga en la mano.
+
+Todo lo que se nombra acá está en `herramientas/` y probado.
+
+> Las notas de la auditoría del 14/10/2026 y los pendientes de infraestructura se
+> llevan aparte, fuera de este repositorio.
+
+---
+
+## Dónde va el cambio: en el build, no acá
+
+**El generador reescribe `index.html` entero en cada cierre.** Se ve en la historia:
+el código del panel pasó de 3.150 a 3.637 líneas a lo largo de los 4.911 cierres,
+siempre llegando ya armado desde la máquina que lo genera.
+
+Entonces un cambio hecho directamente en el repo se pierde en el próximo cierre, unos
+diez minutos después. Peor: el push automático se encontraría con un commit ajeno y
+podría trabarse, que es justo lo que dejó el panel congelado 14,8 horas el 2/10.
+
+Este repo aporta la herramienta. El enganche va en la máquina que arma el panel.
+
+---
+
+## Paso 1 — La contraseña, fuera del código
+
+En la máquina que genera el panel:
+
+```bash
+mkdir -p ~/.comfypetys
+printf '%s' 'LA-CONTRASEÑA-QUE-ELIJAS' > ~/.comfypetys/clave_panel
+chmod 600 ~/.comfypetys/clave_panel
+```
+
+Que sea una contraseña nueva. Y que no vaya en el comando ni en el código: queda en el
+historial del shell y en la lista de procesos.
+
+## Paso 2 — Enganchar la herramienta al final del build
+
+Donde el build termina de escribir `index.html`, antes del `git add`:
+
+```bash
+python3 herramientas/cerrar_panel.py index.html \
+        --clave-archivo ~/.comfypetys/clave_panel
+```
+
+Desde Python, si el build es `stock.py`:
+
+```python
+import subprocess
+from pathlib import Path
+
+subprocess.run([
+    "python3", "herramientas/cerrar_panel.py", str(ruta_index),
+    "--clave-archivo", str(Path.home() / ".comfypetys/clave_panel"),
+], check=True)
+```
+
+La herramienta:
+- comprime el panel y lo cifra;
+- le pone adelante la pantalla de contraseña, la misma de `atencion.html`;
+- le avisa al panel de adentro que la sesión ya está abierta, para que no pregunte dos
+  veces;
+- **no hace nada si el archivo ya está cifrado**, así que correrla de más no rompe.
+
+Necesita `pip install cryptography`, que la máquina ya tiene: es lo que usa para
+cifrar `atencion.html`.
+
+## Paso 3 — Probar antes de publicar
+
+```bash
+node herramientas/probar_cierre.js index.html 'LA-CONTRASEÑA'
+```
+
+Abre el archivo en un Chromium de verdad y comprueba 13 cosas: que no quede nada
+legible en el texto del archivo, que la contraseña equivocada no deje pasar, que la
+correcta abra el panel entero sin errores de JavaScript, y que al recargar no vuelva a
+preguntar. Termina con error si algo falla, así que se puede enganchar al build para
+que nunca publique un panel roto.
+
+Sobre el panel del 14/10, las 13 pasan.
+
+## Paso 4 — Lo que cambia para quien lo usa
+
+Ahora hay una pantalla de contraseña antes de que cargue nada, igual que en el panel
+de atención.
+
+**Sobre el backup dentro de Claude:** el panel trae `if(window.claude)` para abrirse
+sin clave cuando lo mirás como artifact. Con el cifrado, ese atajo queda adentro y la
+pantalla de afuera siempre pregunta. Si querés conservarlo, publicá la versión en
+claro solo a Claude —que es privado— y la cifrada al resto.
+
+---
+
+## De paso, pesa seis veces menos
+
+El panel pasa de **1.464 KB a 233 KB**: el gzip comprime muy bien el bloque de datos.
+Con 137 cierres por día, eso frena bastante el crecimiento del repositorio.
+
+---
+
+## Si además querés anonimizar
+
+```bash
+python3 herramientas/limpiar_datos.py index.html --revisar   # primero mirá qué hay
+python3 herramientas/cerrar_panel.py index.html --anonimizar --clave-archivo ...
+```
+
+Reemplaza los nombres de clientes por iniciales (`Maria Eugenia Quiroga` → `M. E. Q.`).
+
+⚠️ **Antes de prenderlo:** la hoja del transportista imprime esos nombres y quien
+entrega los paquetes los necesita. Con el panel cifrado ya están protegidos; esto es
+defensa extra por si el panel alguna vez vuelve a salir sin cifrar. Si lo prendés,
+fijate primero si la hoja sigue sirviendo con iniciales más el número de pedido.
+
+---
+
+## El vigía
+
+`.github/workflows/vigia.yml` mira cada 30 minutos hace cuánto no se actualiza
+`index.html` y manda un mail si pasó demasiado: a los 45 minutos, a las 6 horas y a
+las 24, más un recordatorio diario a las 9 si sigue caído. Usa los mismos secretos de
+mail que `alerta.yml`.
+
+Existe por el 2 de octubre: el panel quedó congelado 14,8 horas mostrando datos viejos
+con cara de buenos, y no había nada que avisara. Empieza a funcionar cuando el archivo
+esté en `main`.

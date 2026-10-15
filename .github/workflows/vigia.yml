@@ -1,0 +1,114 @@
+name: vigia
+
+# Avisa por mail cuando el panel del depósito deja de actualizarse.
+#
+# POR QUÉ: el 02/10/2026 el generador del stock se cayó y el panel quedó
+# congelado 14,8 horas — todo el día hábil — mostrando el cierre de las 09:59.
+# El panel de atención siguió publicando normal, así que desde afuera no se
+# notaba nada: los datos tenían cara de buenos, solo que eran viejos. Nadie se
+# enteró hasta el día siguiente.
+#
+# CÓMO: cada 30 minutos mira hace cuánto cambió index.html en main. Si pasó
+# demasiado, manda un mail. Para no inundar la casilla durante una caída larga,
+# avisa en tres escalones (45 min, 6 h, 24 h) en vez de cada media hora.
+#
+# OJO: el reloj de GitHub Actions no es puntual — una corrida programada puede
+# atrasarse 10 o 20 minutos. Por eso los escalones son bandas anchas, y por eso
+# el primer aviso dice "más de 45 minutos" y no un número exacto.
+#
+# El cuerpo del mail NO lleva montos: el registro de las corridas es público.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el repo con algo de historia
+        uses: actions/checkout@v4
+        with:
+          # Durante una caída del stock, atencion.html sigue commiteando, así
+          # que hay que mirar bastante atrás para encontrar el último cambio
+          # real de index.html.
+          fetch-depth: 400
+
+      - name: Calcular hace cuánto no se actualiza el panel
+        id: edad
+        run: |
+          set -euo pipefail
+          ultimo=$(git log -1 --format=%ct -- index.html || true)
+          if [ -z "$ultimo" ]; then
+            # No apareció en la ventana que bajamos: hace muchísimo que no cambia.
+            echo "minutos=99999" >> "$GITHUB_OUTPUT"
+            echo "cuando=desconocido (más de 400 commits atrás)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ahora=$(date +%s)
+          minutos=$(( (ahora - ultimo) / 60 ))
+          cuando=$(TZ=America/Argentina/Buenos_Aires date -d "@$ultimo" '+%d/%m %H:%M')
+          echo "minutos=$minutos" >> "$GITHUB_OUTPUT"
+          echo "cuando=$cuando" >> "$GITHUB_OUTPUT"
+          echo "El panel se actualizó por última vez hace $minutos minutos ($cuando hora AR)."
+
+      - name: ¿Toca avisar?
+        id: decidir
+        run: |
+          set -euo pipefail
+          m=${{ steps.edad.outputs.minutos }}
+          hora=$(TZ=America/Argentina/Buenos_Aires date +%H)
+          minuto=$(TZ=America/Argentina/Buenos_Aires date +%M)
+          # Tres escalones. Cada banda es ancha para tolerar el atraso del cron,
+          # y angosta para que no lleguen diez mails por la misma caída.
+          if   [ "$m" -ge 45 ]   && [ "$m" -lt 100 ];  then nivel="⚠️ 45 minutos"
+          elif [ "$m" -ge 360 ]  && [ "$m" -lt 420 ];  then nivel="🔴 6 horas"
+          elif [ "$m" -ge 1440 ] && [ "$m" -lt 1500 ]; then nivel="🔴 24 horas"
+          # Más de 25 h caído: los tres avisos ya salieron. En vez de callarse
+          # para siempre, recuerda una vez por día, a las 9 de la mañana.
+          elif [ "$m" -ge 1500 ] && [ "$hora" = "09" ] && [ "$minuto" -lt 30 ]; then
+            nivel="🔴 sigue caído"
+          else nivel=""
+          fi
+          if [ -n "$nivel" ]; then
+            echo "avisar=si" >> "$GITHUB_OUTPUT"
+            echo "nivel=$nivel" >> "$GITHUB_OUTPUT"
+            echo "Toca avisar: $nivel"
+          else
+            echo "avisar=no" >> "$GITHUB_OUTPUT"
+            echo "Nada que avisar (hace $m minutos del último cierre)."
+          fi
+
+      - name: Mandar el mail
+        if: steps.decidir.outputs.avisar == 'si'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          secure: false
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          subject: "[ComfyPetys] El panel de stock no se actualiza — ${{ steps.decidir.outputs.nivel }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ComfyPetys <${{ secrets.MAIL_USER }}>
+          body: |
+            El panel del depósito dejó de actualizarse.
+
+            Último cierre: ${{ steps.edad.outputs.cuando }} (hora argentina)
+            Hace: ${{ steps.edad.outputs.minutos }} minutos
+
+            Lo normal es un cierre cada 10 minutos. Si pasaron más de 45, el
+            generador del stock se cayó: el panel sigue abierto y con cara de
+            normal, pero muestra datos viejos.
+
+            Qué mirar, en este orden:
+              1. Que el proceso que arma el panel siga vivo en la máquina.
+              2. Los chequeos de salud del panel (pestaña de salud del sistema).
+              3. Si atencion.html sí se está actualizando, lo que se cayó es
+                 solo el generador del stock, no la red ni GitHub.
+
+            Esto lo manda el vigía automático del repo, cada 30 minutos.
