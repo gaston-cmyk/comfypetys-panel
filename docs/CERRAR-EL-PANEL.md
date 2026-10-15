@@ -118,13 +118,49 @@ fijate primero si la hoja sigue sirviendo con iniciales más el número de pedid
 
 ---
 
-## El vigía
+## Los dos automatismos nuevos
 
-`.github/workflows/vigia.yml` mira cada 30 minutos hace cuánto no se actualiza
-`index.html` y manda un mail si pasó demasiado: a los 45 minutos, a las 6 horas y a
-las 24, más un recordatorio diario a las 9 si sigue caído. Usa los mismos secretos de
-mail que `alerta.yml`.
+**`vigia.yml`** mira cada 30 minutos hace cuánto no se actualiza `index.html` y manda
+un mail si pasó demasiado: a los 45 minutos, a las 6 horas y a las 24, más un
+recordatorio diario a las 9 si sigue caído. Existe por el 2 de octubre, cuando el panel
+quedó congelado 14,8 horas mostrando datos viejos con cara de buenos y no había nada
+que avisara.
 
-Existe por el 2 de octubre: el panel quedó congelado 14,8 horas mostrando datos viejos
-con cara de buenos, y no había nada que avisara. Empieza a funcionar cuando el archivo
-esté en `main`.
+**`candado.yml`** avisa si el panel vuelve a publicarse sin cifrar. Existe por el 8 de
+septiembre, cuando el panel quedó abierto en internet y nadie se dio cuenta. Mientras
+no exista el archivo `.candado-activo` solo mira y anota; cuando termines de enganchar
+el cifrado, lo creás y a partir de ahí cualquier regresión te llega por mail:
+
+```bash
+touch .candado-activo
+git add .candado-activo && git commit -m "Activar el candado" && git push
+```
+
+Los dos usan los secretos de mail que ya tenés, y **empiezan a funcionar recién cuando
+están en `main`**.
+
+---
+
+## Después del cifrado: cómo seguir leyendo los datos
+
+Una vez que el panel salga cifrado, las herramientas que necesitan los datos lo abren
+solas si les pasás la clave:
+
+```bash
+python3 herramientas/pendientes.py index.html --clave-archivo ~/.comfypetys/clave_panel
+```
+
+`pendientes.py` arma la lista de lo que hay que arreglar en el depósito, ordenada por
+urgencia: stock negativo, lo que se agota en pocos días, lo que falta y nadie pidió,
+las alertas de integridad del panel, los chequeos atrasados y los pedidos viejos sin
+etiqueta. Es la herramienta de todos los días.
+
+## Los backups
+
+```bash
+python3 herramientas/verificar_backup.py backups/confipetis-2026-10-14.db.enc
+```
+
+Te pide la contraseña y prueba las combinaciones de `openssl enc` hasta dar con la que
+se usó. Te dice cuál es y si la derivación de clave es fuerte o floja. Tarda un poco a
+propósito: las vueltas altas son lentas, que es justamente el punto.

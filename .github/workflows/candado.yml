@@ -1,0 +1,104 @@
+name: candado
+
+# Avisa si el panel del depósito vuelve a publicarse SIN cifrar.
+#
+# POR QUÉ: el 08/09/2026 el panel quedó abierto en internet porque un error de
+# JavaScript cortaba el script antes de llegar al candado. Nadie se dio cuenta
+# en el momento: desde afuera la página se veía normal. Un candado que depende
+# de que nada falle antes no es un candado, y un descuido así no debería
+# depender de que alguien lo note.
+#
+# QUÉ MIRA: si index.html trae el bloque de datos en texto plano
+# (<script id="snap">), el panel está sin cifrar. Un panel cifrado no lo tiene:
+# los datos viajan adentro del blob.
+#
+# CUÁNDO AVISA: solo si existe el archivo `.candado-activo` en la raíz del repo.
+# Mientras no exista, este workflow mira y anota en el registro, pero no manda
+# mails — así no te inunda la casilla antes de que el cifrado esté enganchado al
+# build. Cuando termines de integrarlo (ver docs/CERRAR-EL-PANEL.md), creás el
+# archivo y a partir de ahí cualquier regresión te llega por mail:
+#
+#     touch .candado-activo && git add .candado-activo && git commit -m "Activar el candado"
+#
+# El cuerpo del mail NO lleva datos: el registro de las corridas es público.
+
+on:
+  push:
+    branches: [main]
+    paths: ["index.html"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ¿El panel está cifrado?
+        id: estado
+        run: |
+          set -euo pipefail
+          if grep -q '<script id="snap"' index.html; then
+            echo "cifrado=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::El panel se publicó SIN cifrar (index.html trae el bloque de datos en texto plano)."
+          else
+            echo "cifrado=si" >> "$GITHUB_OUTPUT"
+            echo "El panel está cifrado."
+          fi
+
+          if [ -f .candado-activo ]; then
+            echo "exigir=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "exigir=no" >> "$GITHUB_OUTPUT"
+            echo "Falta .candado-activo: por ahora solo miro, no aviso por mail."
+          fi
+
+          # Para no mandar un mail por cada cierre durante una regresión, solo
+          # aviso en los primeros minutos de cada hora. Con un cierre cada diez
+          # minutos, eso es como mucho un mail por hora.
+          minuto=$(date -u +%M)
+          if [ "$((10#$minuto))" -lt 6 ]; then
+            echo "ventana=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "ventana=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Avisar que el panel quedó abierto
+        if: >-
+          steps.estado.outputs.cifrado == 'no' &&
+          steps.estado.outputs.exigir == 'si' &&
+          steps.estado.outputs.ventana == 'si'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          secure: false
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          subject: "[ComfyPetys] 🔴 El panel se publicó SIN cifrar"
+          to: ${{ secrets.MAIL_TO }}
+          from: ComfyPetys <${{ secrets.MAIL_USER }}>
+          body: |
+            El último cierre dejó index.html con los datos en texto plano.
+
+            Mientras siga así, cualquiera que abra la página puede leer el stock,
+            los pedidos, los remitos y los nombres de los clientes, sin escribir
+            ninguna contraseña.
+
+            Qué pasó, casi seguro: el paso que cifra el panel dejó de correr en
+            el build. Mirá que siga la línea de cerrar_panel.py y que la clave
+            esté donde tiene que estar.
+
+            Para arreglarlo a mano, en la máquina que arma el panel:
+
+              python3 herramientas/cerrar_panel.py index.html \
+                      --clave-archivo ~/.comfypetys/clave_panel
+              node herramientas/probar_cierre.js index.html 'LA-CONTRASEÑA'
+
+            Los pasos completos están en docs/CERRAR-EL-PANEL.md.
+
+            Esto lo manda el guardián del repo. Avisa como mucho una vez por hora
+            mientras el panel siga sin cifrar.
