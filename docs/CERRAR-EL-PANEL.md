@@ -95,10 +95,37 @@ claro solo a Claude —que es privado— y la cifrada al resto.
 
 ---
 
-## De paso, pesa seis veces menos
+## El archivo pesa seis veces menos, pero el repositorio crece más rápido
 
-El panel pasa de **1.464 KB a 233 KB**: el gzip comprime muy bien el bloque de datos.
-Con 137 cierres por día, eso frena bastante el crecimiento del repositorio.
+El panel pasa de **1.464 KB a 233 KB**, porque el gzip comprime muy bien el bloque de
+datos. Suena a que el repositorio va a crecer menos. **Es al revés**, y conviene
+saberlo antes de decidir.
+
+Hoy, entre un cierre y el siguiente, lo único que cambia de `index.html` es la línea de
+datos. Git guarda esa diferencia y no el archivo entero: **unos 30 KB por cierre**.
+Un archivo cifrado, en cambio, cambia entero cada vez —el nonce es distinto en cada
+cifrado, como tiene que ser— así que no hay diferencia que guardar: **unos 191 KB por
+cierre**.
+
+Medido sobre doce cierres reales del panel:
+
+| | por cierre | a 137 cierres/día |
+|---|---|---|
+| en claro | 30 KB | ~4 MB/día |
+| cifrado | 191 KB | ~26 MB/día |
+
+Es el mismo precio que ya paga `atencion.html`, que está cifrado desde siempre y aporta
+unos 30 MB por día él solo.
+
+**Qué hacer con esto.** El cifrado igual vale la pena: 22 MB más por día es barato al
+lado de tener los datos abiertos en internet. Pero deja claro que publicar el panel por
+git es una solución de transición. Lo que de verdad resuelve las dos cosas a la vez
+—la exposición y el peso— es **servir el panel desde el VPS**, que ya existe y ya pide
+contraseña, y dejar git para los backups y el código.
+
+Si el cifrado va a convivir un tiempo con el repo público, lo que más alivia es sacar
+los backups de git: son unos 29 MB por día, y los que se borran siguen ocupando lugar
+en la historia para siempre.
 
 ---
 
