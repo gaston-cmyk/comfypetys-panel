@@ -1,0 +1,50 @@
+name: Prueba privada de compra
+run-name: checkout-${{ inputs.identificador }}
+on:
+  workflow_dispatch:
+    inputs:
+      identificador:
+        required: true
+        type: string
+      sobre:
+        description: Prueba y configuración cifradas
+        required: true
+        type: string
+permissions: {}
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar navegador de pruebas
+        run: |
+          python -m pip install --quiet playwright==1.64.0 cryptography
+          python -m playwright install --with-deps chromium --only-shell
+      - name: Comprobar sin pedidos ni datos personales
+        env:
+          SOBRE: ${{ inputs.sobre }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os,json,base64,hashlib,zlib,subprocess,pathlib,datetime
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          password=os.environ['MAIL_PASS']
+          raw=base64.b64decode(os.environ['SOBRE'],validate=True)
+          key=hashlib.pbkdf2_hmac('sha256',password.encode(),raw[:16],600000,32)
+          payload=json.loads(zlib.decompress(AESGCM(key).decrypt(raw[16:28],raw[28:],b'comfypetys-monitor-v1')))
+          path=pathlib.Path('/tmp/sonda_monitor.py');path.write_text(payload['script'])
+          child_env={k:v for k,v in os.environ.items() if k not in ('MAIL_PASS','SOBRE')}
+          try:
+              p=subprocess.run(['python',str(path)],input=json.dumps(payload['config']),text=True,capture_output=True,timeout=240,env=child_env)
+              result=json.loads(p.stdout) if p.returncode==0 else {'fase':'navegador','error':'ProcesoFallido'}
+          except Exception as e:result={'fase':'navegador','error':type(e).__name__}
+          result={'id':payload['id'],'cuando':datetime.datetime.now(datetime.timezone.utc).isoformat(),'resultado':result}
+          salt=os.urandom(16);nonce=os.urandom(12)
+          key=hashlib.pbkdf2_hmac('sha256',password.encode(),salt,600000,32)
+          cipher=AESGCM(key).encrypt(nonce,zlib.compress(json.dumps(result).encode()),b'comfypetys-monitor-v1')
+          print('MONITOR_RESULTADO='+base64.b64encode(salt+nonce+cipher).decode())
+          PY
