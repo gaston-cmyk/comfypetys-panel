@@ -1,0 +1,47 @@
+name: Correo privado del monitor
+run-name: monitor-${{ inputs.identificador }}
+on:
+  workflow_dispatch:
+    inputs:
+      identificador:
+        required: true
+        type: string
+      sobre:
+        description: Contenido cifrado AES-GCM; nunca texto de negocio
+        required: true
+        type: string
+permissions: {}
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Biblioteca de cifrado del sistema
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-cryptography
+      - name: Descifrar y enviar sin registrar el contenido
+        env:
+          SOBRE: ${{ inputs.sobre }}
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+        shell: bash
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import os,json,base64,hashlib,zlib,smtplib,ssl
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from email.message import EmailMessage
+          try:
+              raw=base64.b64decode(os.environ['SOBRE'],validate=True)
+              key=hashlib.pbkdf2_hmac('sha256',os.environ['MAIL_PASS'].encode(),raw[:16],600000,32)
+              payload=json.loads(zlib.decompress(AESGCM(key).decrypt(raw[16:28],raw[28:],b'comfypetys-monitor-v1')))
+              if payload['para']!='gaston@comfypetys.com': raise ValueError('Destinatario no permitido')
+              msg=EmailMessage();msg['From']='ComfyPetys <'+os.environ['MAIL_USER']+'>';msg['To']=payload['para'];msg['Subject']=payload['asunto'];msg.set_content(payload['cuerpo'])
+              with smtplib.SMTP(os.environ['MAIL_SERVER'],int(os.environ['MAIL_PORT']),timeout=40) as s:
+                  s.starttls(context=ssl.create_default_context());s.login(os.environ['MAIL_USER'],os.environ['MAIL_PASS'])
+                  if s.send_message(msg):raise ValueError('Destinatario rechazado')
+              print('Correo aceptado por el servidor SMTP.')
+          except Exception as e:
+              print('Fallo de correo:',type(e).__name__)
+              raise SystemExit(1)
+          PY
