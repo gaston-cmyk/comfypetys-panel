@@ -35,8 +35,10 @@ jobs:
               raw=base64.b64decode(os.environ['SOBRE'],validate=True)
               key=hashlib.pbkdf2_hmac('sha256',os.environ['MAIL_PASS'].encode(),raw[:16],600000,32)
               payload=json.loads(zlib.decompress(AESGCM(key).decrypt(raw[16:28],raw[28:],b'comfypetys-monitor-v1')))
-              if payload['para']!='gaston@comfypetys.com': raise ValueError('Destinatario no permitido')
-              msg=EmailMessage();msg['From']='ComfyPetys <'+os.environ['MAIL_USER']+'>';msg['To']=payload['para'];msg['Subject']=payload['asunto'];msg.set_content(payload['cuerpo'])
+              destinos={x.strip().lower() for x in payload['para'].split(',')}
+              permitidos={'gaston@comfypetys.com','cobranzas@comfypetys.com','francoduarte3110@gmail.com'}
+              if not destinos or not destinos <= permitidos: raise ValueError('Destinatario no permitido')
+              msg=EmailMessage();msg['From']='ChatGPT · ComfyPetys <'+os.environ['MAIL_USER']+'>';msg['To']=payload['para'];msg['Subject']=payload['asunto'];msg.set_content(payload['cuerpo'])
               with smtplib.SMTP(os.environ['MAIL_SERVER'],int(os.environ['MAIL_PORT']),timeout=40) as s:
                   s.starttls(context=ssl.create_default_context());s.login(os.environ['MAIL_USER'],os.environ['MAIL_PASS'])
                   if s.send_message(msg):raise ValueError('Destinatario rechazado')
@@ -45,3 +47,4 @@ jobs:
               print('Fallo de correo:',type(e).__name__)
               raise SystemExit(1)
           PY
+
